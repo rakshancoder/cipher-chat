@@ -1,167 +1,793 @@
-const express = require("express");
-const path = require("path");
-const app = express();
-const http = require("http").createServer(app);
-const io = require("socket.io")(http, {
-  cors: {
-    origin: "*", // optional: allows connections from any domain
-    methods: ["GET", "POST"]
-  }
-});
-
-// Serve static files from root
-app.use(express.static(__dirname));
-
-// Serve index.html at root
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
-
-// PORT for Render/Fly.io
-const PORT = process.env.PORT || 3000;
-
-// Chat rooms & admin
-const rooms = {};
-const ADMIN_USER = "Rakshan_admin";
-const ADMIN_PASS = "rakshan@admin";
-
-// Socket.IO logic
-io.on("connection", socket => {
-
-  let currentRoom = "";
-  let username = "";
-
-  function sendRoomCount(room) {
-    if (!rooms[room]) return;
-    const roomSockets = io.sockets.adapter.rooms.get(room);
-    const count = roomSockets ? roomSockets.size : 0;
-    io.to(room).emit("room-count", count);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cipher Chat — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #03050a;
+    --surface: #080e1a;
+    --card: #0d1626;
+    --border: rgba(56, 139, 253, 0.15);
+    --accent: #388bfd;
+    --accent2: #58a6ff;
+    --accent-glow: rgba(56, 139, 253, 0.3);
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --danger: #f85149;
+    --success: #3fb950;
+    --warning: #e3b341;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
   }
 
-  function sendNotification(room, text) {
-    if (!room || !rooms[room]) return;
-    io.to(room).emit("notification", text);
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    position: relative;
   }
 
-  function removeUserFromRoom(room, user) {
-    if (!rooms[room]) return;
-    rooms[room].users = rooms[room].users.filter(u => u !== user);
-    rooms[room].typers.delete(user);
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(56, 139, 253, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56, 139, 253, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
   }
 
-  socket.on("create-room", (room, user) => {
-    username = user;
-    currentRoom = room;
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(100px);
+    pointer-events: none;
+  }
+  .orb-1 { width: 500px; height: 500px; background: rgba(56,139,253,0.06); top: -150px; left: -150px; }
+  .orb-2 { width: 400px; height: 400px; background: rgba(56,139,253,0.04); bottom: -100px; right: -100px; }
 
-    if (!rooms[room]) {
-      rooms[room] = {
-        name: room,
-        creator: user,
-        users: [],
-        messages: [],
-        created: Date.now(),
-        permanent: false,
-        typers: new Set()
+  /* LOGIN SCREEN */
+  #login-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    background: var(--bg);
+    animation: fadeIn 0.4s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .login-box {
+    position: relative;
+    z-index: 1;
+    width: 380px;
+    animation: slideUp 0.5s ease both;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .login-logo {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .login-logo-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 60px; height: 60px;
+    background: linear-gradient(135deg, rgba(56,139,253,0.2), rgba(56,139,253,0.05));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    font-size: 26px;
+    margin-bottom: 14px;
+    box-shadow: 0 0 40px var(--accent-glow);
+  }
+
+  .login-logo h1 {
+    font-size: 26px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #e6edf3, #58a6ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .login-logo p {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--warning);
+    letter-spacing: 2px;
+    margin-top: 4px;
+  }
+
+  .login-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+  .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--surface);
+    border: 1px solid rgba(56,139,253,0.12);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .field input::placeholder { color: rgba(125,133,144,0.5); }
+  .field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  .error-msg {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--danger);
+    text-align: center;
+    padding: 8px;
+    background: rgba(248,81,73,0.08);
+    border: 1px solid rgba(248,81,73,0.15);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    display: none;
+    letter-spacing: 0.5px;
+  }
+  .error-msg.show { display: block; animation: shake 0.4s ease; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+
+  .btn-login {
+    width: 100%;
+    padding: 13px;
+    background: linear-gradient(135deg, var(--accent), #1a6fd4);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+    box-shadow: 0 4px 20px rgba(56,139,253,0.3);
+  }
+  .btn-login:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(56,139,253,0.45);
+  }
+
+  /* ADMIN PANEL */
+  #admin-panel {
+    display: none;
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    flex-direction: column;
+  }
+  #admin-panel.visible { display: flex; }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 60px;
+    background: rgba(8,14,26,0.9);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    flex-shrink: 0;
+  }
+
+  .panel-header-left {
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  .panel-header-icon {
+    width: 34px; height: 34px;
+    background: linear-gradient(135deg, rgba(227,179,65,0.2), rgba(227,179,65,0.05));
+    border: 1px solid rgba(227,179,65,0.2);
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+
+  .panel-header h2 {
+    font-size: 15px; font-weight: 700; letter-spacing: -0.3px;
+  }
+
+  .panel-header-right {
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .hdr-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(56,139,253,0.06);
+    color: var(--accent2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+  }
+  .hdr-btn:hover { background: rgba(56,139,253,0.14); border-color: rgba(56,139,253,0.3); }
+
+  .hdr-btn.danger {
+    color: var(--danger);
+    background: rgba(248,81,73,0.06);
+    border-color: rgba(248,81,73,0.15);
+  }
+  .hdr-btn.danger:hover { background: rgba(248,81,73,0.14); }
+
+  /* MAIN LAYOUT */
+  .admin-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 60px);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 240px;
+    border-right: 1px solid var(--border);
+    background: rgba(8,14,26,0.5);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sidebar-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .room-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent2);
+    background: rgba(56,139,253,0.1);
+    padding: 2px 7px;
+    border-radius: 20px;
+  }
+
+  .room-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .room-list::-webkit-scrollbar { width: 3px; }
+  .room-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .room-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  .room-item:hover {
+    background: rgba(56,139,253,0.08);
+  }
+  .room-item.active {
+    background: rgba(56,139,253,0.12);
+    color: var(--accent2);
+    border: 1px solid rgba(56,139,253,0.2);
+  }
+  .room-delete {
+    padding: 5px 8px;
+    background: rgba(248,81,73,0.12);
+    border: 1px solid rgba(248,81,73,0.18);
+    border-radius: 8px;
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .room-delete:hover {
+    background: rgba(248,81,73,0.2);
+  }
+  .room-add {
+    padding: 12px 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .room-add input {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(56,139,253,0.12);
+    background: rgba(255,255,255,0.03);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+  }
+  .room-add input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(56,139,253,0.12);
+  }
+  .room-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .room-item.active .room-dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+  .nav-btns {
+    padding: 12px 8px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 6px;
+  }
+  .nav-btn {
+    flex: 1;
+    padding: 8px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .nav-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  /* DETAIL PANEL */
+  .detail-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .detail-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .detail-title {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .detail-meta {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 4px;
+  }
+
+  .meta-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+  }
+
+  .messages-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .messages-area::-webkit-scrollbar { width: 4px; }
+  .messages-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .msg-row {
+    display: flex;
+    gap: 10px;
+    animation: rowIn 0.2s ease both;
+  }
+  @keyframes rowIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .msg-avatar {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(56,139,253,0.2), rgba(56,139,253,0.05));
+    border: 1px solid rgba(56,139,253,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent2);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .msg-content { flex: 1; }
+
+  .msg-user {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent2);
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .msg-text {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.5;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 8px 12px;
+    display: inline-block;
+  }
+
+  .msg-img-thumb {
+    max-width: 200px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+    margin-top: 2px;
+  }
+
+  .empty-detail {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    opacity: 0.5;
+  }
+  .empty-detail-icon { font-size: 40px; opacity: 0.3; }
+
+  .footer-bar {
+    padding: 12px 24px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .footer-bar span { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-icon">🔐</div>
+      <h1>Admin Console</h1>
+      <p>⚠ RESTRICTED ACCESS</p>
+    </div>
+    <div class="login-card">
+      <div id="error-msg" class="error-msg">Invalid credentials. Access denied.</div>
+      <div class="field">
+        <label>Admin Username</label>
+        <input id="admin-user" placeholder="Enter username" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="admin-pass" type="password" placeholder="Enter password">
+      </div>
+      <button class="btn-login" onclick="login()">Access Console →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel">
+  <header class="panel-header">
+    <div class="panel-header-left">
+      <div class="panel-header-icon">🔐</div>
+      <div>
+        <h2>Admin Console</h2>
+      </div>
+    </div>
+    <div class="panel-header-right">
+      <button class="hdr-btn" onclick="refresh()">↻ Refresh</button>
+      <button class="hdr-btn" onclick="downloadPDF()">⬇ Export PDF</button>
+      <button class="hdr-btn danger" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="admin-body">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Rooms</span>
+        <span class="room-count" id="room-count">0</span>
+      </div>
+      <div class="room-add">
+        <input id="new-room-name" placeholder="New room name" autocomplete="off">
+        <button class="nav-btn" onclick="createRoom()">Create</button>
+      </div>
+      <div class="room-list" id="room-list"></div>
+      <div class="nav-btns">
+        <button class="nav-btn" onclick="prev()">← Prev</button>
+        <button class="nav-btn" onclick="next()">Next →</button>
+      </div>
+    </div>
+
+    <!-- Detail -->
+    <div class="detail-panel">
+      <div id="detail-header" class="detail-header" style="display:none">
+        <div>
+          <div class="detail-title" id="detail-name">—</div>
+          <div class="detail-meta">
+            <span class="meta-tag" id="detail-creator">Creator: —</span>
+            <span class="meta-tag" id="detail-count">0 messages</span>
+          </div>
+        </div>
+      </div>
+      <div class="messages-area" id="messages-area">
+        <div class="empty-detail">
+          <div class="empty-detail-icon">🔍</div>
+          <div>Select a room to inspect</div>
+        </div>
+      </div>
+      <div class="footer-bar">Built by <span>Rakshan</span> 🚀 · Cipher Chat Admin</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  let rooms = [];
+  let index = 0;
+  let lastData = "";
+
+  function login() {
+    const user = document.getElementById("admin-user").value;
+    const pass = document.getElementById("admin-pass").value;
+    socket.emit("admin-login", user, pass);
+  }
+
+  socket.on("login-error", () => {
+    const e = document.getElementById("error-msg");
+    e.classList.remove("show");
+    void e.offsetWidth;
+    e.classList.add("show");
+  });
+
+  socket.on("rooms-list", (data) => {
+    document.getElementById("login-screen").style.display = "none";
+    const panel = document.getElementById("admin-panel");
+    panel.classList.add("visible");
+
+    rooms = Object.keys(data);
+    document.getElementById("room-count").textContent = rooms.length;
+    renderRooms();
+    if (rooms.length > 0) {
+      if (!rooms.includes(rooms[index])) {
+        index = 0;
+      }
+      openRoom(rooms[index]);
+    }
+  });
+
+  function renderRooms() {
+    const list = document.getElementById("room-list");
+    list.innerHTML = "";
+    rooms.forEach((r, i) => {
+      const item = document.createElement("div");
+      item.className = "room-item" + (i === index ? " active" : "");
+      item.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="room-dot"></div>
+          <span>${r}</span>
+        </div>
+        <button class="room-delete" title="Delete room">✕</button>
+      `;
+      item.onclick = () => { index = i; openRoom(r); renderRooms(); };
+      item.querySelector(".room-delete").onclick = e => {
+        e.stopPropagation();
+        deleteRoom(r);
       };
+      list.appendChild(item);
+    });
+  }
+
+  function openRoom(r) {
+    socket.emit("get-room", r);
+  }
+
+  socket.on("room-data", (data) => {
+    const area = document.getElementById("messages-area");
+    const hdr = document.getElementById("detail-header");
+
+    hdr.style.display = "flex";
+    document.getElementById("detail-name").textContent = "#" + data.name;
+    document.getElementById("detail-creator").textContent = "Creator: " + data.creator;
+    document.getElementById("detail-count").textContent = data.messages.length + " messages";
+
+    lastData = `Room: ${data.name}\nCreated By: ${data.creator}\n\nMessages:\n`;
+    area.innerHTML = "";
+
+    if (data.messages.length === 0) {
+      area.innerHTML = `<div class="empty-detail"><div class="empty-detail-icon">💬</div><div>No messages in this room</div></div>`;
+      return;
     }
 
-    if (!rooms[room].users.includes(user)) rooms[room].users.push(user);
-    rooms[room].messages.push({ user: "SYSTEM", text: `⚡ ${username} joined the room`, system: true });
-    socket.join(room);
+    data.messages.forEach((m, i) => {
+      const row = document.createElement("div");
+      row.className = "msg-row";
+      row.style.animationDelay = (i * 0.03) + "s";
 
-    sendNotification(room, `⚡ ${username} joined the room`);
-    sendRoomCount(room);
+      if (m.system) {
+        const sys = document.createElement("div");
+        sys.className = "msg-text";
+        sys.style.background = "rgba(56,139,253,0.08)";
+        sys.style.borderColor = "rgba(56,139,253,0.14)";
+        sys.style.color = "var(--accent2)";
+        sys.style.textAlign = "center";
+        sys.style.width = "100%";
+        sys.textContent = m.text;
+        row.appendChild(sys);
+        lastData += `SYSTEM: ${m.text}\n`;
+      } else {
+        const avatar = document.createElement("div");
+        avatar.className = "msg-avatar";
+        avatar.textContent = m.user.charAt(0).toUpperCase();
+
+        const content = document.createElement("div");
+        content.className = "msg-content";
+
+        const userLabel = document.createElement("div");
+        userLabel.className = "msg-user";
+        userLabel.textContent = m.user.toUpperCase();
+
+        content.appendChild(userLabel);
+
+        if (m.text) {
+          const text = document.createElement("div");
+          text.className = "msg-text";
+          text.textContent = m.text;
+          content.appendChild(text);
+          lastData += `${m.user}: ${m.text}\n`;
+        }
+
+        if (m.img) {
+          const img = document.createElement("img");
+          img.className = "msg-img-thumb";
+          img.src = m.img;
+          content.appendChild(img);
+          lastData += `${m.user}: [Image]\n`;
+        }
+
+        row.appendChild(avatar);
+        row.appendChild(content);
+      }
+      area.appendChild(row);
+    });
+
+    area.scrollTop = area.scrollHeight;
   });
 
-  socket.on("join-room", (room, user) => {
-    username = user;
-    currentRoom = room;
+  function createRoom() {
+    const roomName = document.getElementById("new-room-name").value.trim();
+    if (!roomName) return;
+    socket.emit("admin-create-room", roomName);
+    document.getElementById("new-room-name").value = "";
+  }
 
-    if (!rooms[room]) {
-      rooms[room] = {
-        name: room,
-        creator: user,
-        users: [],
-        messages: [],
-        created: Date.now(),
-        permanent: false,
-        typers: new Set()
-      };
+  function deleteRoom(roomName) {
+    if (!confirm(`Delete room "${roomName}"?`)) return;
+    socket.emit("admin-delete-room", roomName);
+  }
+
+  function refresh() {
+    socket.emit("admin-login", "Rakshan_admin", "rakshan@admin");
+  }
+
+  function next() {
+    index = (index + 1) % rooms.length;
+    openRoom(rooms[index]);
+    renderRooms();
+  }
+
+  function prev() {
+    index = (index - 1 + rooms.length) % rooms.length;
+    openRoom(rooms[index]);
+    renderRooms();
+  }
+
+  function downloadPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const lines = doc.splitTextToSize(lastData, 180);
+    doc.setFont("courier");
+    doc.setFontSize(10);
+    doc.text(lines, 14, 20);
+    doc.save("CipherChatLogs.pdf");
+  }
+
+  function doLogout() {
+    document.getElementById("admin-panel").classList.remove("visible");
+    document.getElementById("login-screen").style.display = "flex";
+    document.getElementById("admin-user").value = "";
+    document.getElementById("admin-pass").value = "";
+  }
+
+  // Enter key
+  document.addEventListener("keydown", e => {
+    if (e.key === "Enter" && document.getElementById("login-screen").style.display !== "none") {
+      login();
     }
-
-    if (!rooms[room].users.includes(user)) rooms[room].users.push(user);
-    rooms[room].messages.push({ user: "SYSTEM", text: `⚡ ${username} joined the room`, system: true });
-    socket.join(room);
-
-    sendNotification(room, `⚡ ${username} joined the room`);
-    sendRoomCount(room);
   });
-
-  socket.on("send-message", msg => {
-    rooms[currentRoom].messages.push({ user: username, text: msg });
-    io.to(currentRoom).emit("message", username + ": " + msg);
-  });
-
-  socket.on("send-image", img => {
-    rooms[currentRoom].messages.push({ user: username, img: img });
-    io.to(currentRoom).emit("image", { user: username, img: img });
-  });
-
-  socket.on("typing", isTyping => {
-    if (!currentRoom || !rooms[currentRoom]) return;
-    if (isTyping) rooms[currentRoom].typers.add(username);
-    else rooms[currentRoom].typers.delete(username);
-    io.to(currentRoom).emit("typing-users", Array.from(rooms[currentRoom].typers));
-  });
-
-  socket.on("leave-room", () => {
-    if (!currentRoom || !rooms[currentRoom]) return;
-    rooms[currentRoom].messages.push({ user: "SYSTEM", text: `👋 ${username} left the room`, system: true });
-    removeUserFromRoom(currentRoom, username);
-    socket.leave(currentRoom);
-    sendNotification(currentRoom, `👋 ${username} left the room`);
-    if (rooms[currentRoom]) sendRoomCount(currentRoom);
-    currentRoom = "";
-  });
-
-  socket.on("disconnect", () => {
-    if (!currentRoom || !rooms[currentRoom]) return;
-    rooms[currentRoom].messages.push({ user: "SYSTEM", text: `👋 ${username} left the room`, system: true });
-    removeUserFromRoom(currentRoom, username);
-    socket.to(currentRoom).emit("notification", `👋 ${username} left the room`);
-    if (rooms[currentRoom]) sendRoomCount(currentRoom);
-  });
-
-  socket.on("admin-login", (user, pass) => {
-    if (user === ADMIN_USER && pass === ADMIN_PASS) socket.emit("rooms-list", rooms);
-    else socket.emit("login-error");
-  });
-
-  socket.on("admin-create-room", roomName => {
-    if (!rooms[roomName]) {
-      rooms[roomName] = {
-        name: roomName,
-        creator: "admin",
-        users: [],
-        messages: [{ user: "SYSTEM", text: `🛠️ Room ${roomName} created by admin`, system: true }],
-        created: Date.now(),
-        permanent: true,
-        typers: new Set()
-      };
-    } else rooms[roomName].permanent = true;
-    socket.emit("rooms-list", rooms);
-  });
-
-  socket.on("admin-delete-room", roomName => {
-    if (rooms[roomName]) delete rooms[roomName];
-    socket.emit("rooms-list", rooms);
-  });
-
-  socket.on("get-room", room => {
-    socket.emit("room-data", rooms[room]);
-  });
-
-});
-
-// Start server
-http.listen(PORT, () => console.log("Server running on port " + PORT));
+</script>
+</body>
+</html>
