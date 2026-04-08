@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cipher Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #03050a;
+    --surface: #080e1a;
+    --card: #0d1626;
+    --border: rgba(56, 139, 253, 0.15);
+    --accent: #388bfd;
+    --accent2: #58a6ff;
+    --accent-glow: rgba(56, 139, 253, 0.35);
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --danger: #f85149;
+    --success: #3fb950;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(56, 139, 253, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56, 139, 253, 0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridShift 20s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes gridShift {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(40px, 40px); }
+  }
+
+  /* Glow orbs */
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    animation: orbFloat 8s ease-in-out infinite;
+  }
+  .orb-1 {
+    width: 400px; height: 400px;
+    background: rgba(56, 139, 253, 0.12);
+    top: -100px; left: -100px;
+  }
+  .orb-2 {
+    width: 300px; height: 300px;
+    background: rgba(88, 166, 255, 0.08);
+    bottom: -80px; right: -80px;
+    animation-delay: -4s;
+  }
+  @keyframes orbFloat {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(20px, 20px) scale(1.05); }
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  .logo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, rgba(56,139,253,0.2), rgba(56,139,253,0.05));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    font-size: 24px;
+    margin-bottom: 12px;
+    box-shadow: 0 0 30px var(--accent-glow);
+    animation: pulse 3s ease infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+    50% { box-shadow: 0 0 40px var(--accent-glow), 0 0 60px rgba(56,139,253,0.1); }
+  }
+
+  .logo h1 {
+    font-family: var(--sans);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #e6edf3, #58a6ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .logo p {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 0 0 1px rgba(56,139,253,0.05), 0 24px 48px rgba(0,0,0,0.4);
+  }
+
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    flex: 1;
+    padding: 16px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    letter-spacing: 0.5px;
+  }
+
+  .tab.active {
+    color: var(--accent2);
+  }
+
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel {
+    padding: 28px;
+    display: none;
+    animation: panelFade 0.3s ease;
+  }
+  .panel.active { display: block; }
+
+  @keyframes panelFade {
+    from { opacity: 0; transform: translateX(8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+
+  .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .field input {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid rgba(56,139,253,0.12);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s;
+  }
+
+  .field input::placeholder { color: rgba(125,133,144,0.5); }
+
+  .field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+    background: rgba(56,139,253,0.03);
+  }
+
+  .btn {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 10px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #1a6fd4);
+    color: white;
+    box-shadow: 0 4px 20px rgba(56,139,253,0.3);
+  }
+
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(56,139,253,0.45);
+  }
+  .btn-primary:hover::after { opacity: 1; }
+  .btn-primary:active { transform: translateY(0); }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  .divider span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+  }
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 24px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .footer span { color: var(--accent2); }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--success);
+    border-radius: 50%;
+    margin-right: 6px;
+    box-shadow: 0 0 8px var(--success);
+    animation: blink 2s ease infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="wrapper">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <h1>Cipher Chat</h1>
+    <p><span class="status-dot"></span>Encrypted · Real-time</p>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('create', this)">Create Room</button>
+      <button class="tab" onclick="switchTab('join', this)">Join Room</button>
+    </div>
+
+    <div class="panel active" id="panel-create">
+      <div class="field">
+        <label>Username</label>
+        <input id="createUser" placeholder="Enter your handle" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Room Code</label>
+        <input id="createRoom" placeholder="Choose a room code" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" onclick="createRoom()">Create Room →</button>
+    </div>
+
+    <div class="panel" id="panel-join">
+      <div class="field">
+        <label>Username</label>
+        <input id="joinUser" placeholder="Enter your handle" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Room Code</label>
+        <input id="joinRoom" placeholder="Enter room code" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" onclick="joinRoom()">Join Room →</button>
+    </div>
+  </div>
+
+  <div class="footer">Built by <span>Rakshan</span> 🚀</div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+
+  function switchTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  function createRoom() {
+    const user = document.getElementById("createUser").value.trim();
+    const room = document.getElementById("createRoom").value.trim();
+    if (!user || !room) return;
+    localStorage.setItem("username", user);
+    localStorage.setItem("room", room);
+    socket.emit("create-room", room, user);
+    window.location = "chat.html";
+  }
+
+  function joinRoom() {
+    const user = document.getElementById("joinUser").value.trim();
+    const room = document.getElementById("joinRoom").value.trim();
+    if (!user || !room) return;
+    localStorage.setItem("username", user);
+    localStorage.setItem("room", room);
+    socket.emit("join-room", room, user);
+    window.location = "chat.html";
+  }
+
+  // Enter key support
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const active = document.querySelector('.panel.active');
+      if (active.id === 'panel-create') createRoom();
+      else joinRoom();
+    }
+  });
+</script>
+</body>
+</html>
