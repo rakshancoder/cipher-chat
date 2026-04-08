@@ -8,7 +8,7 @@ const io = require("socket.io")(http, {
   }
 });
 
-app.use(express.static("public"));
+app.use(express.static("."));
 
 const rooms = {};
 
@@ -104,6 +104,8 @@ sendRoomCount(room);
 
 socket.on("send-message",(msg)=>{
 
+if (!currentRoom || !rooms[currentRoom]) return;
+
 rooms[currentRoom].messages.push({
 user:username,
 text:msg
@@ -117,6 +119,8 @@ username+": "+msg
 });
 
 socket.on("send-image",(img)=>{
+
+if (!currentRoom || !rooms[currentRoom]) return;
 
 rooms[currentRoom].messages.push({
 user:username,
