@@ -2,9 +2,14 @@ const express = require("express");
 const path = require("path");
 const app = express();
 const http = require("http").createServer(app);
-const io = require("socket.io")(http);
+const io = require("socket.io")(http, {
+  cors: {
+    origin: "*", // optional: allows connections from any domain
+    methods: ["GET", "POST"]
+  }
+});
 
-// Serve all static files from root
+// Serve static files from root
 app.use(express.static(__dirname));
 
 // Serve index.html at root
@@ -12,13 +17,17 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// ... all your existing socket.io code ...
-const rooms = {};
+// PORT for Render/Fly.io
+const PORT = process.env.PORT || 3000;
 
+// Chat rooms & admin
+const rooms = {};
 const ADMIN_USER = "Rakshan_admin";
 const ADMIN_PASS = "rakshan@admin";
 
+// Socket.IO logic
 io.on("connection", socket => {
+
   let currentRoom = "";
   let username = "";
 
@@ -40,11 +49,119 @@ io.on("connection", socket => {
     rooms[room].typers.delete(user);
   }
 
-  // ... all your socket.on handlers as-is ...
+  socket.on("create-room", (room, user) => {
+    username = user;
+    currentRoom = room;
+
+    if (!rooms[room]) {
+      rooms[room] = {
+        name: room,
+        creator: user,
+        users: [],
+        messages: [],
+        created: Date.now(),
+        permanent: false,
+        typers: new Set()
+      };
+    }
+
+    if (!rooms[room].users.includes(user)) rooms[room].users.push(user);
+    rooms[room].messages.push({ user: "SYSTEM", text: `⚡ ${username} joined the room`, system: true });
+    socket.join(room);
+
+    sendNotification(room, `⚡ ${username} joined the room`);
+    sendRoomCount(room);
+  });
+
+  socket.on("join-room", (room, user) => {
+    username = user;
+    currentRoom = room;
+
+    if (!rooms[room]) {
+      rooms[room] = {
+        name: room,
+        creator: user,
+        users: [],
+        messages: [],
+        created: Date.now(),
+        permanent: false,
+        typers: new Set()
+      };
+    }
+
+    if (!rooms[room].users.includes(user)) rooms[room].users.push(user);
+    rooms[room].messages.push({ user: "SYSTEM", text: `⚡ ${username} joined the room`, system: true });
+    socket.join(room);
+
+    sendNotification(room, `⚡ ${username} joined the room`);
+    sendRoomCount(room);
+  });
+
+  socket.on("send-message", msg => {
+    rooms[currentRoom].messages.push({ user: username, text: msg });
+    io.to(currentRoom).emit("message", username + ": " + msg);
+  });
+
+  socket.on("send-image", img => {
+    rooms[currentRoom].messages.push({ user: username, img: img });
+    io.to(currentRoom).emit("image", { user: username, img: img });
+  });
+
+  socket.on("typing", isTyping => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    if (isTyping) rooms[currentRoom].typers.add(username);
+    else rooms[currentRoom].typers.delete(username);
+    io.to(currentRoom).emit("typing-users", Array.from(rooms[currentRoom].typers));
+  });
+
+  socket.on("leave-room", () => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    rooms[currentRoom].messages.push({ user: "SYSTEM", text: `👋 ${username} left the room`, system: true });
+    removeUserFromRoom(currentRoom, username);
+    socket.leave(currentRoom);
+    sendNotification(currentRoom, `👋 ${username} left the room`);
+    if (rooms[currentRoom]) sendRoomCount(currentRoom);
+    currentRoom = "";
+  });
+
+  socket.on("disconnect", () => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    rooms[currentRoom].messages.push({ user: "SYSTEM", text: `👋 ${username} left the room`, system: true });
+    removeUserFromRoom(currentRoom, username);
+    socket.to(currentRoom).emit("notification", `👋 ${username} left the room`);
+    if (rooms[currentRoom]) sendRoomCount(currentRoom);
+  });
+
+  socket.on("admin-login", (user, pass) => {
+    if (user === ADMIN_USER && pass === ADMIN_PASS) socket.emit("rooms-list", rooms);
+    else socket.emit("login-error");
+  });
+
+  socket.on("admin-create-room", roomName => {
+    if (!rooms[roomName]) {
+      rooms[roomName] = {
+        name: roomName,
+        creator: "admin",
+        users: [],
+        messages: [{ user: "SYSTEM", text: `🛠️ Room ${roomName} created by admin`, system: true }],
+        created: Date.now(),
+        permanent: true,
+        typers: new Set()
+      };
+    } else rooms[roomName].permanent = true;
+    socket.emit("rooms-list", rooms);
+  });
+
+  socket.on("admin-delete-room", roomName => {
+    if (rooms[roomName]) delete rooms[roomName];
+    socket.emit("rooms-list", rooms);
+  });
+
+  socket.on("get-room", room => {
+    socket.emit("room-data", rooms[room]);
+  });
+
 });
 
-// Use port from environment (Render/Fly.io)
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+// Start server
+http.listen(PORT, () => console.log("Server running on port " + PORT));
